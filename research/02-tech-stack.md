@@ -1,61 +1,127 @@
-# OpenClaw — Tech Stack Under the Hood
+# OpenClaw — Tech Stack (Verified from actual repo)
+
+> Source: `github.com/openclaw/openclaw` read directly via GitHub API
 
 ## Runtime
 
-| Layer | Technology |
-|-------|------------|
-| Language | **TypeScript** |
-| Runtime | **Node.js 22+** (Node 24+ for custom skill dev) |
-| Package manager | npm / pnpm / bun |
-| Deployment | **Docker Compose** (standard) or bare Node |
-| Build tool | `tsdown` (fast TypeScript bundler) |
-| Module resolution | `jiti` (runtime TS resolution for plugins) |
+| Layer | Technology | Notes |
+|-------|------------|-------|
+| Language | **TypeScript** (ESM strict) | No `any`, no `@ts-nocheck` |
+| Runtime | **Node.js 22+** / **Bun** | Bun preferred for dev/scripts/tests |
+| Package manager | **pnpm** (primary) | `pnpm-lock.yaml`; Bun also supported |
+| Build | **tsdown** | Fast TS bundler |
+| Module resolution | **jiti** | Runtime TS resolution for plugins |
+| Lint | **oxlint** | Rust-based, fast |
+| Format | **oxfmt** | Rust-based |
+| Dead code | **knip** | `knip.config.ts` |
+| Copy-paste detect | **jscpd** | `.jscpd.json` |
+| Secret scanning | **detect-secrets** | `.secrets.baseline` (433KB!) |
+| GH Actions security | **zizmor** | `zizmor.yml` |
+| Pre-commit | **prek** | Runs same checks as CI |
+| Test framework | **Vitest** | V8 coverage, 70% threshold |
+| Python tooling | **pyproject.toml** | Scripts/tooling layer |
 
-## Plugin / Skill SDK
+## Monorepo Structure
 
-- Distributed as **subpath exports** from the main `openclaw` npm package
-- `openclaw/plugin-sdk/core` — startup-critical APIs
-- `openclaw/plugin-sdk/<channel>` — per-channel lazy imports
-- Build pipeline:
-  1. `tsdown-build.mjs` — compiles TypeScript → JavaScript
-  2. `copy-plugin-sdk-root-alias.mjs` — creates SDK module structure
-  3. `tsconfig.plugin-sdk.dts.json` — generates `.d.ts` declaration files
-  4. `write-plugin-sdk-entry-dts.ts` — main SDK entry point types
-- Plugin deps go in `dependencies` (not `devDependencies`) — required by runtime
+```
+openclaw/
+├── src/                  # Core TypeScript source
+├── apps/                 # iOS, Android, macOS native apps
+├── extensions/           # Channel plugins (workspace packages)
+├── packages/
+│   ├── clawdbot/         # Legacy compatibility shim
+│   └── moltbot/          # Legacy compatibility shim
+├── skills/               # Bundled skills (in-repo)
+├── ui/                   # Web UI
+├── vendor/               # Vendored deps
+├── .agent/               # Agent config
+└── .agents/              # Multi-agent config
+```
 
-## LLM Providers Supported
+## src/ Module Map (key directories)
 
-- **Anthropic** (Claude) — native
-- **OpenAI** (GPT-4/5) — native
-- **Any OpenAI-compatible API** — custom provider config (5-min setup)
-- Recommendation: use strongest latest-gen model for lowest prompt-injection risk
+| Module | Purpose |
+|--------|---------|
+| `src/acp/` | **ACP bridge** — stdio protocol for IDE integration (Zed, etc.) |
+| `src/agents/` | Agent management + multi-agent routing |
+| `src/auto-reply/` | Auto-reply logic |
+| `src/browser/` | Browser automation |
+| `src/canvas-host/` | A2UI canvas host |
+| `src/channels/` | Channel abstraction layer |
+| `src/cli/` | CLI wiring (`osc-progress` + `@clack/prompts`) |
+| `src/commands/` | CLI commands |
+| `src/context-engine/` | **Context management system** |
+| `src/cron/` | Built-in cron scheduler |
+| `src/daemon/` | Daemon mode |
+| `src/gateway/` | Gateway core (WebSocket, session routing) |
+| `src/hooks/` | Hooks system |
+| `src/i18n/` | Internationalization (zh-CN generated) |
+| `src/interactive/` | Interactive REPL mode |
+| `src/link-understanding/` | Link/URL processing |
+| `src/markdown/` | Markdown processing |
+| `src/media/` + `src/media-understanding/` | Media pipeline |
+| `src/memory/` | Memory system (core: flat Markdown) |
+| `src/node-host/` | Node execution host |
+| `src/pairing/` | Device pairing |
+| `src/plugin-sdk/` + `src/plugin-sdk-internal/` | Plugin SDK |
+| `src/plugins/` | Plugin loader/manager |
+| `src/providers/` | LLM provider adapters |
+| `src/routing/` | Message routing engine |
+| `src/secrets/` | Secrets management |
+| `src/security/` | Security layer |
+| `src/sessions/` | Session store + compaction |
+| `src/terminal/` | Terminal UI utils (`palette.ts`, `table.ts`) |
+| `src/tts/` | TTS (ElevenLabs + system fallback) |
+| `src/tui/` | TUI components |
+| `src/whatsapp/` | WhatsApp channel |
+| `src/wizard/` | Setup wizard |
 
-## Memory Architecture
+## Native Apps
 
-- **Flat Markdown files on disk** — intentional, no vector DB
-- Per-agent session files
-- Human-readable, git-trackable, portable
-- No cloud dependency
+- **macOS**: Swift/SwiftUI, `@Observable` framework, Sparkle auto-update (`appcast.xml`)
+- **iOS**: SwiftUI, TestFlight not provided (build from source)
+- **Android**: `apps/android/app/build.gradle.kts`
+- Linting: `.swiftlint.yml` + `.swiftformat`
 
-## Channels Architecture
+## Deployment Options
 
-- Gateway = single control plane
-- Channels decouple from models
-- 20+ supported: WhatsApp, Telegram, Slack, Discord, Signal, iMessage (BlueBubbles), IRC, MS Teams, Matrix, LINE, Mattermost, Twitch, Nostr, Zalo, WebChat, macOS, iOS/Android
+| Method | Config |
+|--------|--------|
+| Docker Compose | `docker-compose.yml` (standard) |
+| Dockerfile.sandbox | Sandboxed shell execution |
+| Dockerfile.sandbox-browser | Sandboxed browser |
+| Fly.io | `fly.toml` + `fly.private.toml` |
+| Render | `render.yaml` |
+| Cloudflare Workers | via **Moltworker** (separate repo) |
+| Podman | `setup-podman.sh` + `openclaw.podman.env` |
 
-## Voice
+## LLM Providers
 
-- Wake word detection on macOS/iOS
-- Continuous voice on Android
-- TTS: ElevenLabs (primary) + system TTS fallback
+- Anthropic (Claude) — native
+- OpenAI (GPT-4/5) — native
+- Any OpenAI-compatible API — custom provider (`src/providers/`)
+- Ollama — via custom provider config (used by ChromaDB memory skill)
 
-## Canvas / Visual
+## Memory Architecture (CORRECTED)
 
-- **A2UI** — agent-driven visual workspace
-- Live Canvas: agents can render nodes, draw, update UI in real-time
+**Core**: Flat Markdown files at `~/.openclaw/agents/<id>/sessions/*.jsonl`
 
-## Infrastructure
+**Optional plugins** (NOT built-in):
+1. **chromadb-memory** skill — ChromaDB + Ollama `nomic-embed-text` embeddings, auto-recall before every agent turn
+2. **QMD backend** — `memory.backend = "qmd"` — BM25 + vectors + reranking, Bun + node-llama-cpp, auto-downloads GGUF from HuggingFace
+3. **Hybrid Memory** (`n00n0i/openclaw-hybrid-memory`) — ChromaDB + Memgraph (vector + graph)
+4. **MemoryX** (`@t0ken.ai/memoryx-openclaw-plugin`) — advanced memory plugin
 
-- Self-hosted via Docker Compose
-- Cloudflare Workers port: **Moltworker** (by Cloudflare team)
-- No mandatory cloud service
+> ChromaDB is NOT a core dependency. It's a community skill installed separately.
+
+## ACP (Agent Client Protocol) — CRITICAL FINDING
+
+`openclaw acp` exposes an ACP agent over **stdio**, routing IDE prompts to the Gateway via WebSocket.
+
+- SDK: `@agentclientprotocol/sdk` 0.15.x
+- Works with **Zed** editor natively
+- Session mapping: `acp:<uuid>` → Gateway session key
+- Supports: `initialize`, `newSession`, `loadSession`, `prompt`, `cancel`, `listSessions`
+- Config in Zed: add `OpenClaw ACP` as custom agent server running `openclaw acp`
+
+**This is directly mappable to Claude Code's MCP stdio protocol.**
